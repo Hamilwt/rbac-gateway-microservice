@@ -1,3 +1,7 @@
+import jwt
+from app.core.config import settings
+from app.core.redis import redis_client
+from jwt.exceptions import InvalidTokenError
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -61,3 +65,62 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "refresh_token": refresh_token,
         "token_type": "bearer"
     }
+
+@router.post("/logout", status_code=status.HTTP_200_OK)
+def logout(refresh_token: str):
+    """
+    Revoke a refresh token by adding its unique 'jti' to Redis.
+    """
+    try:
+        payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=["HS256"])
+        jti = payload.get("jti")
+        
+        # Calculate how many seconds until the token expires naturally
+        exp = payload.get("exp")
+        import time
+        ttl = int(exp - time.time())
+        
+        if ttl > 0:
+            # Store the jti in Redis for the remaining lifespan of the token
+            redis_client.setex(f"bl_{jti}", ttl, "revoked")
+            
+        return {"message": "Successfully logged out"}
+    except InvalidTokenError:
+        raise HTTPException(status_code=400, detail="Invalid token")
+
+
+@router.post("/refresh", response_model=Token)
+def refresh_access_token(refresh_token: str, db: Session = Depends(get_db)):
+    """
+    Issue a new access token if the refresh token is valid and not blacklisted.
+    """
+    try:
+        payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=["HS256"])
+        jti = payload.get("jti")
+        user_id = payload.get("sub")
+        token_type = payload.get("type")
+        
+        if token_type != "refresh":
+            raise HTTPException(status_code=400, detail="Invalid token type")
+            
+        # Check Redis to see if this token was logged out/revoked
+        if redis_client.get(f"bl_{jti}"):
+            raise HTTPException(status_code=401, detail="Token has been revoked")
+            
+        # Fetch the user to get their latest permissions
+        user = db.query(User).filter(User.id == int(user_id)).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        permissions = list({perm.name for role in user.roles for perm in role.permissions})
+        
+        # Issue a brand new access token
+        new_access_token = create_access_token(subject=user.id, permissions=permissions)
+        
+        return {
+            "access_token": new_access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer"
+        }
+    except InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
