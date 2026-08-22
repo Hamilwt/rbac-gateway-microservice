@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from app.core.config import settings
-from app.api import auth
+from app.api import auth, users  # <-- Add users here
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
-# Include our new authentication routes
+# Include our API routers
 app.include_router(auth.router)
+app.include_router(users.router) # <-- Add this line
 
 @app.get("/health")
 def health_check():
@@ -13,7 +14,6 @@ def health_check():
     A simple endpoint to verify the API is running and reading config properly.
     We mask the database credentials before returning them as a security best practice.
     """
-    # Split splits the string at the '@' symbol. We only return the host/port part.
     safe_db_url = settings.DATABASE_URL.split("@")[-1] if "@" in settings.DATABASE_URL else "Not Configured"
     
     return {
