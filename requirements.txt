@@ -9,3 +9,4 @@ pyjwt
 redis
 httpx
 python-multipart
+scalar-fastapi>=1.0.0
