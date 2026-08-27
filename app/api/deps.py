@@ -1,8 +1,8 @@
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
 from jwt.exceptions import InvalidTokenError
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db
@@ -12,7 +12,10 @@ from app.models.user import User
 # It automatically powers the "Authorize" button in the Swagger UI.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+
+def get_current_user(
+    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+):
     """
     Dependency to validate the JWT and return the database user.
     """
@@ -21,7 +24,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
+
     try:
         # Decode the token using our secret key
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
@@ -30,33 +33,35 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             raise credentials_exception
     except InvalidTokenError:
         raise credentials_exception
-        
+
     # Fetch user from DB
     user = db.query(User).filter(User.id == int(user_id)).first()
     if user is None:
         raise credentials_exception
-        
+
     return user
+
 
 def require_permissions(required_permissions: list[str]):
     """
-    A factory function that returns a dependency. 
+    A factory function that returns a dependency.
     It checks if the user's token contains the required permissions.
     """
+
     def permission_checker(token: str = Depends(oauth2_scheme)):
         try:
             payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
             user_perms = payload.get("permissions", [])
-            
+
             # Check if all required permissions are in the user's token
             for perm in required_permissions:
                 if perm not in user_perms:
                     raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN, 
-                        detail=f"Missing required permission: {perm}"
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Missing required permission: {perm}",
                     )
             return payload
         except InvalidTokenError:
             raise HTTPException(status_code=401, detail="Invalid token")
-            
+
     return permission_checker
