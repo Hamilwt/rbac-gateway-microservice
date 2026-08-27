@@ -1,5 +1,5 @@
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from jwt.exceptions import InvalidTokenError
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from app.models.role import Role
 from app.models.user import User
 from app.schemas.auth import Token
 from app.schemas.user import UserCreate, UserResponse
+from app.services.rate_limiter import rate_limit  # <-- NEW IMPORT
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -24,7 +25,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post(
     "/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED
 )
-def register(user_in: UserCreate, db: Session = Depends(get_db)):
+def register(
+    request: Request,  # <-- Added for rate limiter IP extraction
+    user_in: UserCreate, 
+    db: Session = Depends(get_db),
+    limit: None = Depends(rate_limit("strict"))  # <-- The strict rate limit guard
+):
     # 1. Check if user exists
     if db.query(User).filter(User.email == user_in.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -48,7 +54,10 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    request: Request,  # <-- Added for rate limiter IP extraction
+    form_data: OAuth2PasswordRequestForm = Depends(), 
+    db: Session = Depends(get_db),
+    limit: None = Depends(rate_limit("strict"))  # <-- The strict rate limit guard
 ):
     # OAuth2PasswordRequestForm automatically looks for 'username' and 'password' in the request body
     user = db.query(User).filter(User.email == form_data.username).first()
