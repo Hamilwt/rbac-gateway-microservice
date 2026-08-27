@@ -1,14 +1,27 @@
 from fastapi import FastAPI
+from scalar_fastapi import get_scalar_api_reference
+
 from app.core.config import settings
 from app.api import auth, users, gateway, roles
 
-app = FastAPI(title=settings.PROJECT_NAME)
+# Disable default Swagger (docs_url=None) so Scalar can take over the /docs route
+app = FastAPI(title=settings.PROJECT_NAME, docs_url=None, redoc_url=None)
 
 # Include our API routers
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(gateway.router)
 app.include_router(roles.router)
+
+@app.get("/docs", include_in_schema=False)
+async def scalar_html():
+    """
+    Renders the Scalar UI API documentation.
+    """
+    return get_scalar_api_reference(
+        openapi_url=app.openapi_url,
+        title=f"{settings.PROJECT_NAME} - API Reference",
+    )
 
 @app.get("/health", tags=["default"])
 def health_check():
