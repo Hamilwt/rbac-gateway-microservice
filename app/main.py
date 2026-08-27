@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.core.config import settings
-from app.api import auth, users, gateway
+from app.api import auth, users, gateway, roles
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
@@ -8,6 +8,7 @@ app = FastAPI(title=settings.PROJECT_NAME)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(gateway.router)
+app.include_router(roles.router)
 
 @app.get("/health", tags=["default"])
 def health_check():
