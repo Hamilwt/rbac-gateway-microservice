@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict  # <-- Imported ConfigDict
 
 from app.db.session import get_db
 from app.models.role import Role
@@ -19,8 +19,7 @@ class RoleResponse(BaseModel):
     name: str
     permissions: list[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)  # <-- Modern Pydantic V2 syntax
 
 @router.get("", response_model=list[RoleResponse])
 def get_roles(
