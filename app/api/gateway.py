@@ -42,7 +42,7 @@ async def inventory_gateway(
     headers["X-Authenticated-User-Id"] = str(current_user.id)
     
     # 5. Use httpx to forward the exact request
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         try:
             response = await client.request(
                 method=request.method,
@@ -57,9 +57,17 @@ async def inventory_gateway(
                 detail="Inventory microservice is currently unavailable"
             )
             
-    # 6. Return downstream response as-is
+    # 6. Return downstream response, but strip headers that no longer
+    # apply now that httpx has already decoded the body for us. Forwarding
+    # a stale Content-Encoding/Content-Length here would claim the body is
+    # still compressed (or a different size) than it actually is.
+    excluded_headers = {"content-encoding", "content-length", "transfer-encoding", "connection"}
+    forwarded_headers = {
+        k: v for k, v in response.headers.items() if k.lower() not in excluded_headers
+    }
+
     return Response(
         content=response.content,
         status_code=response.status_code,
-        headers=dict(response.headers)
+        headers=forwarded_headers,
     )
