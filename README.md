@@ -1,18 +1,20 @@
-# RBAC Gateway Microservice
+# RBAC Auth & Gateway Microservice
 
-An asynchronous API Gateway built with FastAPI, demonstrating enterprise-grade security, Role-Based Access Control (RBAC), and microservice proxying.
+Built an auth gateway microservice with JWT-based auth, refresh-token rotation, and a hand-implemented Redis token-bucket rate limiter (atomic via Lua scripting). The gateway reverse-proxies authorized, RBAC-checked requests to a separate deployed API.
 
 ## Core Features
-* **JWT Authentication:** Secure password hashing (bcrypt) and token generation (access/refresh).
-* **Role-Based Access Control:** Custom FastAPI dependencies to intercept requests and validate user permissions (`get_current_user`, `require_permissions`).
-* **Session Lifecycle Management:** Redis integration for stateless token revocation (blacklisting) upon logout.
-* **Microservice Proxying:** Asynchronous HTTP request forwarding (`httpx`) to downstream microservices with graceful error handling (503 Service Unavailable).
-* **Containerized Infrastructure:** Automated local development environment using Docker Compose (PostgreSQL & Redis).
-* **Database Migrations:** SQLAlchemy ORM models tracked and managed via Alembic.
+*   **JWT Authentication:** Secure password hashing (bcrypt) and token generation.
+*   **Refresh Token Rotation:** Blacklists used refresh tokens in Redis to prevent replay attacks.
+*   **Atomic Rate Limiting:** Custom Lua script executed in Redis to enforce strict (auth) and standard (general) token buckets without race conditions. Fail-open design ensures API availability if Redis drops.
+*   **Role-Based Access Control (RBAC):** 5-table SQLAlchemy schema mapping Users ↔ Roles ↔ Permissions.
+*   **Reverse Proxy Gateway:** Wildcard async HTTP routing (`httpx`) that dynamically maps HTTP methods to required RBAC permissions before forwarding traffic to downstream microservices.
 
-## Tech Stack
-* **Framework:** FastAPI
-* **Database:** PostgreSQL (async), Redis
-* **ORM & Migrations:** SQLAlchemy, Alembic
-* **Security:** PyJWT, passlib, bcrypt
-* **Infrastructure:** Docker, Docker Compose
+## Architecture
+
+```text
+Client → Gateway (FastAPI) 
+           │  ├─ Auth Check (JWT)
+           │  ├─ RBAC Check (Postgres/Claims)
+           │  └─ Rate Limit (Redis + Lua)
+           │
+           └─ [Forward Request] → Downstream Inventory API
