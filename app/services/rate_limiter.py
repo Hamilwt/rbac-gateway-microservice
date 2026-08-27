@@ -1,7 +1,10 @@
 import time
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 from redis.exceptions import RedisError
+
+from app.api.deps import get_optional_current_user
 from app.core.redis import redis_client
+from app.models.user import User
 
 # The exact atomic Lua script from the spec
 LUA_SCRIPT = """
@@ -53,12 +56,19 @@ class rate_limit:
             self.max_tokens = 60
             self.refill_rate = 60 / 60.0 # 60 requests per 60s
 
-    def __call__(self, request: Request):
+    def __call__(
+        self,
+        request: Request,
+        current_user: User | None = Depends(get_optional_current_user),
+    ):
         if not rate_limit_script:
             return  # Fail open if script didn't load
-            
-        client_ip = request.client.host if request.client else "127.0.0.1"
-        bucket_key = f"rate_limit:{self.tier}:{client_ip}"
+
+        if current_user:
+            identifier = f"user:{current_user.id}"
+        else:
+            identifier = f"ip:{request.client.host if request.client else '127.0.0.1'}"
+        bucket_key = f"rate_limit:{self.tier}:{identifier}"
         now = time.time()
 
         try:

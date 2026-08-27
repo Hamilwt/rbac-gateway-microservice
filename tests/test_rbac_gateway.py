@@ -47,3 +47,28 @@ def test_gateway_forwards_request(mock_request, client, db_session):
     assert response.status_code == 200
     assert response.json() == {"mocked": "inventory_data"}
     mock_request.assert_called_once()
+
+def test_rate_limit_keyed_by_user_not_shared_ip(client, db_session):
+    from app.core.redis import redis_client
+
+    perm = Permission(name="inventory:read")
+    role = Role(name="reader", permissions=[perm])
+    user_a = User(email="a@example.com", hashed_password="pw", roles=[role])
+    user_b = User(email="b@example.com", hashed_password="pw", roles=[role])
+    db_session.add_all([user_a, user_b])
+    db_session.commit()
+
+    token_a = create_access_token(subject=user_a.id, permissions=["inventory:read"])
+    token_b = create_access_token(subject=user_b.id, permissions=["inventory:read"])
+
+    with patch("httpx.AsyncClient.request", new_callable=AsyncMock) as mock_request:
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.content = b"{}"
+        mock_request.return_value.headers = {}
+
+        client.get("/gateway/inventory/products", headers={"Authorization": f"Bearer {token_a}"})
+        client.get("/gateway/inventory/products", headers={"Authorization": f"Bearer {token_b}"})
+
+    # Two different users, same test-client "IP" — must land in two separate buckets
+    assert redis_client.exists(f"rate_limit:standard:user:{user_a.id}")
+    assert redis_client.exists(f"rate_limit:standard:user:{user_b.id}")

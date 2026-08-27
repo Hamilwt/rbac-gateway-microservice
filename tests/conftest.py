@@ -1,3 +1,4 @@
+from app.core.redis import redis_client
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -50,3 +51,11 @@ def client(db_session):
         yield c
     # Clear overrides after the test
     app.dependency_overrides.clear()
+
+@pytest.fixture(autouse=True)
+def clear_redis():
+    """Wipe Redis before and after every test so rate-limit buckets
+    and token blacklists from one test never leak into the next."""
+    redis_client.flushdb()
+    yield
+    redis_client.flushdb()

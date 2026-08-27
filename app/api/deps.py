@@ -1,5 +1,5 @@
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from sqlalchemy.orm import Session
@@ -40,6 +40,28 @@ def get_current_user(
         raise credentials_exception
 
     return user
+
+
+def get_optional_current_user(
+    request: Request, db: Session = Depends(get_db)
+) -> User | None:
+    """
+    Like get_current_user, but returns None instead of raising 401
+    when there's no valid token. Used by the rate limiter so it can
+    key by user_id when authenticated, and fall back to IP otherwise.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+    token = auth_header.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        user_id = payload.get("sub")
+        if user_id is None:
+            return None
+    except InvalidTokenError:
+        return None
+    return db.query(User).filter(User.id == int(user_id)).first()
 
 
 def require_permissions(required_permissions: list[str]):

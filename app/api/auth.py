@@ -1,3 +1,5 @@
+from redis.exceptions import RedisError
+import time
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
@@ -15,7 +17,7 @@ from app.core.security import (
 from app.db.session import get_db
 from app.models.role import Role
 from app.models.user import User
-from app.schemas.auth import Token
+from app.schemas.auth import Token, RefreshTokenRequest
 from app.schemas.user import UserCreate, UserResponse
 from app.services.rate_limiter import rate_limit  # <-- NEW IMPORT
 
@@ -84,23 +86,22 @@ def login(
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
-def logout(refresh_token: str):
+def logout(body: RefreshTokenRequest):
     """
     Revoke a refresh token by adding its unique 'jti' to Redis.
     """
     try:
-        payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(body.refresh_token, settings.SECRET_KEY, algorithms=["HS256"])
         jti = payload.get("jti")
 
         # Calculate how many seconds until the token expires naturally
         exp = payload.get("exp")
-        import time
 
         ttl = int(exp - time.time())
 
         if ttl > 0:
             # Store the jti in Redis for the remaining lifespan of the token
-            redis_client.setex(f"bl_{jti}", ttl, "revoked")
+            redis_client.set(f"bl_{jti}", "revoked", ex=ttl)
 
         return {"message": "Successfully logged out"}
     except InvalidTokenError:
@@ -108,21 +109,35 @@ def logout(refresh_token: str):
 
 
 @router.post("/refresh", response_model=Token)
-def refresh_access_token(refresh_token: str, db: Session = Depends(get_db)):
+def refresh_access_token(body: RefreshTokenRequest, db: Session = Depends(get_db)):
     """
-    Issue a new access token if the refresh token is valid and not blacklisted.
+    Issue a new access token AND a new refresh token (rotation) if the
+    refresh token is valid and not blacklisted. The old refresh token's
+    jti is blacklisted immediately so it can never be reused.
     """
     try:
-        payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(body.refresh_token, settings.SECRET_KEY, algorithms=["HS256"])
         jti = payload.get("jti")
         user_id = payload.get("sub")
         token_type = payload.get("type")
+        exp = payload.get("exp")
 
         if token_type != "refresh":
             raise HTTPException(status_code=400, detail="Invalid token type")
 
-        # Check Redis to see if this token was logged out/revoked
-        if redis_client.get(f"bl_{jti}"):
+        # Check Redis to see if this token was already used/revoked
+        # Check Redis to see if this token was already used/revoked.
+        # Fail CLOSED here (unlike the rate limiter, which fails open):
+        # if we can't verify a refresh token hasn't been revoked, the
+        # safer choice is to reject it, not silently let it through.
+        try:
+            is_revoked = redis_client.get(f"bl_{jti}")
+        except RedisError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to verify token status right now. Please try again shortly.",
+            )
+        if is_revoked:
             raise HTTPException(status_code=401, detail="Token has been revoked")
 
         # Fetch the user to get their latest permissions
@@ -134,12 +149,18 @@ def refresh_access_token(refresh_token: str, db: Session = Depends(get_db)):
             {perm.name for role in user.roles for perm in role.permissions}
         )
 
-        # Issue a brand new access token
+        # --- ROTATION: blacklist the OLD refresh token now that it's used ---
+        ttl = int(exp - time.time())
+        if ttl > 0:
+            redis_client.set(f"bl_{jti}", "revoked", ex=ttl)
+
+        # Issue a brand new access token AND a brand new refresh token
         new_access_token = create_access_token(subject=user.id, permissions=permissions)
+        new_refresh_token = create_refresh_token(subject=user.id)
 
         return {
             "access_token": new_access_token,
-            "refresh_token": refresh_token,
+            "refresh_token": new_refresh_token,
             "token_type": "bearer",
         }
     except InvalidTokenError:
