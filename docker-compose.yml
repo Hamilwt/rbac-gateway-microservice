@@ -1,6 +1,16 @@
 version: '3.8'
 
 services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
   db:
     image: postgres:16
     # Always pin specific versions in production, not just 'latest'
