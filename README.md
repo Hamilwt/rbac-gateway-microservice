@@ -92,4 +92,7 @@ curl http://localhost:8000/gateway/inventory/products \
 
 ## Deployment
 
-Designed to run as a single container plus Postgres/Redis, making it deployable to any container platform (Azure Container Apps, Render, etc.) with `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY`, and `INVENTORY_API_BASE_URL` supplied as environment variables — no code changes needed between local and cloud.
+**Live API Documentation (Swagger UI):** `https://rbac-gateway.graysky-397b5d92.centralindia.azurecontainerapps.io/docs`
+*(Note: Because this is an API gateway, there is no frontend web page at the root URL. Please use the interactive docs link above to test the endpoints!)*
+
+Runs as three Container Apps in one environment — the gateway (external ingress) plus Postgres and Redis (internal-only TCP ingress, unreachable from the public internet). All three scale to zero when idle to optimize cloud costs.
