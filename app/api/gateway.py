@@ -39,6 +39,7 @@ async def inventory_gateway(
     # 4. Forward headers and inject X-Authenticated-User-Id
     headers = dict(request.headers)
     headers.pop("host", None)  # Remove original host header to prevent routing issues
+    headers.pop("accept-encoding", None)  # Let httpx negotiate its own encoding!
     headers["X-Authenticated-User-Id"] = str(current_user.id)
     
     # 5. Use httpx to forward the exact request
@@ -57,10 +58,7 @@ async def inventory_gateway(
                 detail="Inventory microservice is currently unavailable"
             )
             
-    # 6. Return downstream response, but strip headers that no longer
-    # apply now that httpx has already decoded the body for us. Forwarding
-    # a stale Content-Encoding/Content-Length here would claim the body is
-    # still compressed (or a different size) than it actually is.
+    # 6. Return downstream response, but strip headers that no longer apply
     excluded_headers = {"content-encoding", "content-length", "transfer-encoding", "connection"}
     forwarded_headers = {
         k: v for k, v in response.headers.items() if k.lower() not in excluded_headers
