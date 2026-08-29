@@ -10,6 +10,7 @@ JWT authentication microservice with role-based access control, Redis-based rate
 ![Redis](https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![CI/CD](https://github.com/Hamilwt/rbac-gateway-microservice/actions/workflows/deploy.yml/badge.svg)
 
 [Live Demo](#live-demo) • [Features](#core-features) • [API Reference](#api-reference) • [Getting Started](#getting-started-local)
 
@@ -92,6 +93,10 @@ pytest tests/ -v
 ```
 
 12 tests covering auth, refresh rotation, RBAC, rate limiting, and gateway forwarding.
+
+## CI/CD
+
+Every push to `main` runs the full test suite against real Postgres and Redis containers, then — only if all tests pass — builds the image, pushes it to Docker Hub, and deploys it to Azure Container Apps automatically. See [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
 
 ## Example
 
