@@ -1,0 +1,57 @@
+name: Test and Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: rbac_db
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest tests/ -v
+        env:
+          SECRET_KEY: test_secret_key_for_ci
+          DATABASE_URL: postgresql://admin:test_password@localhost:5432/rbac_db
+          REDIS_URL: redis://localhost:6379/0
+          INVENTORY_API_BASE_URL: https://inventory-and-order-management-api-k53n.onrender.com
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/rbac-gateway:${{ github.sha }} .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/rbac-gateway:${{ github.sha }}
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            az containerapp update \
+              --name rbac-gateway \
+              --resource-group rbac-portfolio-rg \
+              --image ${{ secrets.DOCKERHUB_USERNAME }}/rbac-gateway:${{ github.sha }}
