@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from scalar_fastapi import get_scalar_api_reference
 
 from app.core.config import settings
@@ -6,6 +7,11 @@ from app.api import auth, users, gateway, roles
 
 # Disable default Swagger (docs_url=None) so Scalar can take over the /docs route
 app = FastAPI(title=settings.PROJECT_NAME, docs_url=None, redoc_url=None)
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """Redirects the bare root URL to the interactive API docs."""
+    return RedirectResponse(url="/docs")
 
 # Include our API routers
 app.include_router(auth.router)
